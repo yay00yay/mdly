@@ -1,115 +1,181 @@
+//ref : https://blog.csdn.net/zl_china/article/details/129756110
+
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:get/get.dart';
 
 void main() {
-  runApp(const MyApp());
+  WidgetsFlutterBinding.ensureInitialized();
+  runApp(GetMaterialApp(
+    home: ChatPage(),
+  ));
+  //runApp(const MyApp());
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class ApiProvider extends GetConnect {
+  final String apiKey = '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';
+  final String baseUrl = 'https://api.openai.com';
+  final Duration timeout = Duration(seconds: 30);
 
-  // This widget is the root of your application.
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Flutter Demo',
-      theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // Try running your application with "flutter run". You'll see the
-        // application has a blue toolbar. Then, without quitting the app, try
-        // changing the primarySwatch below to Colors.green and then invoke
-        // "hot reload" (press "r" in the console where you ran "flutter run",
-        // or simply save your changes to "hot reload" in a Flutter IDE).
-        // Notice that the counter didn't reset back to zero; the application
-        // is not restarted.
-        primarySwatch: Colors.blue,
-      ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
-    );
+  Map<String, String> _headers() {
+    return {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bear $apiKey',
+    };
   }
-}
 
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
-
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
-  final String title;
-
-  @override
-  State<MyHomePage> createState() => _MyHomePageState();
-}
-
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
-
-  void _incrementCounter() {
-    setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
+  ApiProvider() {
+    httpClient.baseUrl = baseUrl;
+    httpClient.timeout = timeout;
+    httpClient.addRequestModifier<void>((request) {
+      request.headers['Content-Type'] = 'application/json';
+      request.headers['Authorization'] =
+          'Bearer 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';
+      return request;
     });
   }
 
+  Future<Response> completions(String body) {
+    return post('/v1/completions', body);
+  }
+}
+
+class ChatLogic extends GetxController {
+  final ChatState state = ChatState();
+  final ApiProvider provider = ApiProvider();
+
+  Future<void> sendMessage(String content) async {
+    state.requestStatus(content);
+    update();
+    final response = await provider.completions(json.encode({
+      "model": "text-davinci-003",
+      "prompt": content,
+      "temperature": 0.7,
+      "max_tokens": 2260,
+      "top_p": 1,
+      "frequency_penalty": 0,
+      "presence_penalty": 0
+    }));
+    try {
+      if (response.statusCode == 200) {
+        final data = response.body;
+        final text = data['choices'][0]['text'];
+        state.responseStatus(text);
+      } else {
+        state.responseStatus(response.statusText ?? '请求错误，请稍后重试');
+      }
+    } catch (error) {
+      state.responseStatus(error.toString());
+    }
+    update();
+  }
+}
+
+class ChatState {
+  String message = '';
+  String sender = 'user';
+  bool isRequesting = false;
+  List<Map<String, dynamic>> messages = [];
+
+  void requestStatus(String content) {
+    messages.add({'text': content, 'sender': 'user'});
+    sender = 'bot';
+    messages.add({'text': '正在回复中...', 'sender': sender});
+    isRequesting = true;
+    message = '';
+  }
+
+  void responseStatus(String content) {
+    messages.removeLast(); // Remove "正在回复中..." 状态
+    messages.add({'text': content, 'sender': sender});
+    sender = 'user';
+    isRequesting = false;
+  }
+}
+
+class ChatPage extends StatelessWidget {
+  ChatPage({Key? key}) : super(key: key);
+
+  final logic = Get.put(ChatLogic());
+  final state = Get.find<ChatLogic>().state;
+
   @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
     return Scaffold(
       appBar: AppBar(
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: Text(widget.title),
+        centerTitle: true,
+        title: Text('你问我答'),
       ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
-        child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Invoke "debug painting" (press "p" in the console, choose the
-          // "Toggle Debug Paint" action from the Flutter Inspector in Android
-          // Studio, or the "Toggle Debug Paint" command in Visual Studio Code)
-          // to see the wireframe for each widget.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            const Text(
-              'You have pushed the button this many times:',
+      body: GetBuilder<ChatLogic>(
+        builder: (context) => Column(
+          children: [
+            Expanded(
+              child: ListView.builder(
+                itemCount: state.messages.length,
+                itemBuilder: (BuildContext context, index) {
+                  Map m = state.messages[index];
+                  return Padding(
+                    padding: const EdgeInsets.all(8.0),
+                    child: Row(
+                      mainAxisAlignment: m['sender'] == 'user'
+                          ? MainAxisAlignment.end
+                          : MainAxisAlignment.start,
+                      children: [
+                        Flexible(
+                          child: Container(
+                            padding: const EdgeInsets.all(8.0),
+                            decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(8.0),
+                                color: m['sender'] == 'user'
+                                    ? Colors.green[100]
+                                    : Colors.white),
+                            child: Text(m['text']),
+                          ),
+                        )
+                      ],
+                    ),
+                  );
+                },
+              ),
             ),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
+            Container(
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.only(
+                    topLeft: Radius.circular(12.0),
+                    topRight: Radius.circular(12.0)),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.all(8.0),
+                      child: TextField(
+                          decoration: const InputDecoration(
+                            hintText: '请输入消息',
+                            border: InputBorder.none,
+                          ),
+                          controller:
+                              TextEditingController(text: state.message),
+                          onChanged: (value) {
+                            state.message = value;
+                          }),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.send),
+                    onPressed: state.isRequesting
+                        ? null
+                        : () {
+                            logic.sendMessage(state.message);
+                          },
+                  ),
+                ],
+              ),
             ),
           ],
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
-      ), // This trailing comma makes auto-formatting nicer for build methods.
     );
   }
 }
